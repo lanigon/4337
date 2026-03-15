@@ -1,0 +1,83 @@
+{
+  "skill_name": "evm",
+  "iteration": 1,
+  "configs": [
+    {
+      "name": "with_skill",
+      "evals": [
+        {
+          "eval_name": "multi-chain-balance",
+          "pass_rate": 1.0,
+          "passed": 5,
+          "total": 5,
+          "duration_seconds": 106.2,
+          "total_tokens": 15725
+        },
+        {
+          "eval_name": "token-info-base",
+          "pass_rate": 1.0,
+          "passed": 6,
+          "total": 6,
+          "duration_seconds": 32.3,
+          "total_tokens": 14661
+        },
+        {
+          "eval_name": "contract-read",
+          "pass_rate": 1.0,
+          "passed": 5,
+          "total": 5,
+          "duration_seconds": 41.2,
+          "total_tokens": 15141
+        }
+      ],
+      "aggregate": {
+        "mean_pass_rate": 1.0,
+        "mean_duration_seconds": 59.9,
+        "mean_tokens": 15176
+      }
+    },
+    {
+      "name": "without_skill",
+      "evals": [
+        {
+          "eval_name": "multi-chain-balance",
+          "pass_rate": 0.8,
+          "passed": 4,
+          "total": 5,
+          "duration_seconds": 39.6,
+          "total_tokens": 14538
+        },
+        {
+          "eval_name": "token-info-base",
+          "pass_rate": 1.0,
+          "passed": 6,
+          "total": 6,
+          "duration_seconds": 70.2,
+          "total_tokens": 18365
+        },
+        {
+          "eval_name": "contract-read",
+          "pass_rate": 1.0,
+          "passed": 5,
+          "total": 5,
+          "duration_seconds": 38.1,
+          "total_tokens": 15001
+        }
+      ],
+      "aggregate": {
+        "mean_pass_rate": 0.93,
+        "mean_duration_seconds": 49.3,
+        "mean_tokens": 15968
+      }
+    }
+  ],
+  "analysis": {
+    "observations": [
+      "with_skill achieves 100% pass rate vs 93% without — the difference comes from ENS resolution which only the evm skill provides natively",
+      "token-info-base: with_skill was 2x faster (32s vs 70s) and used 20% fewer tokens (14.6k vs 18.4k) — without_skill wasted time trying Etherscan API first (which doesn't support Base) before falling back to raw RPC",
+      "contract-read: nearly identical performance — both tools (evm skill and etherscan skill) handle contract calls well",
+      "multi-chain-balance with_skill was slower (106s vs 40s) due to Ethereum RPC flakiness requiring retries — this is an RPC reliability issue, not a skill design issue",
+      "The evm skill's biggest advantage is on chains not covered by Etherscan (Base, Linea, Scroll, etc.) where without_skill has to improvise RPC calls from scratch"
+    ]
+  }
+}

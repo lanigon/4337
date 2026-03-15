@@ -1,0 +1,32 @@
+{
+  "eval_id": 3,
+  "eval_name": "contract-read",
+  "prompt": "check if 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D is a contract on ethereum, and if so read its factory() function (returns address) and WETH() function (returns address)",
+  "assertions": [
+    {
+      "id": "is-contract",
+      "text": "Confirmed the address is a contract (not an EOA)",
+      "type": "content_check"
+    },
+    {
+      "id": "factory-address",
+      "text": "Successfully called factory() and returned a valid Ethereum address",
+      "type": "content_check"
+    },
+    {
+      "id": "weth-address",
+      "text": "Successfully called WETH() and returned a valid Ethereum address",
+      "type": "content_check"
+    },
+    {
+      "id": "correct-factory",
+      "text": "Factory address is 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f (Uniswap V2 Factory)",
+      "type": "content_check"
+    },
+    {
+      "id": "correct-weth",
+      "text": "WETH address is 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+      "type": "content_check"
+    }
+  ]
+}

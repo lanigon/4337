@@ -1,0 +1,11 @@
+{
+  "eval_id": 3,
+  "config": "without_skill",
+  "expectations": [
+    {"text": "Confirmed the address is a contract (not an EOA)", "passed": true, "evidence": "Verified contract: UniswapV2Router02"},
+    {"text": "Successfully called factory() and returned a valid Ethereum address", "passed": true, "evidence": "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"},
+    {"text": "Successfully called WETH() and returned a valid Ethereum address", "passed": true, "evidence": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"},
+    {"text": "Factory address is 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f (Uniswap V2 Factory)", "passed": true, "evidence": "Exact match"},
+    {"text": "WETH address is 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", "passed": true, "evidence": "Exact match"}
+  ]
+}

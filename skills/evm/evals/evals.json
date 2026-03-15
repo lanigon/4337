@@ -1,0 +1,23 @@
+{
+  "skill_name": "evm",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我查一下 vitalik.eth 在以太坊主网和 Arbitrum 上的 ETH 余额，顺便看看他在以太坊上持有多少 USDC（合约地址 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48）",
+      "expected_output": "返回 Ethereum 和 Arbitrum 上的 ETH 余额，以及 Ethereum 上的 USDC 余额",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "我想了解一下 Base 链上这个 token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 的基本信息，包括名称、符号、精度和总供应量，还有当前 Base 链的 gas 价格",
+      "expected_output": "返回 Base 链上 USDC token 的完整信息和 gas 价格",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "check if 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D is a contract on ethereum, and if so read its factory() function (returns address) and WETH() function (returns address)",
+      "expected_output": "确认是合约，并返回 Uniswap V2 Router 的 factory 和 WETH 地址",
+      "files": []
+    }
+  ]
+}

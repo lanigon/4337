@@ -1,0 +1,12 @@
+{
+  "eval_id": 2,
+  "config": "without_skill",
+  "expectations": [
+    {"text": "Retrieved and displayed the token name (USD Coin / USDC)", "passed": true, "evidence": "USD Coin"},
+    {"text": "Retrieved and displayed the token symbol", "passed": true, "evidence": "USDC"},
+    {"text": "Retrieved and displayed the token decimals (should be 6)", "passed": true, "evidence": "6"},
+    {"text": "Retrieved and displayed the total supply as a human-readable number", "passed": true, "evidence": "4,347,410,987.374823 USDC"},
+    {"text": "Retrieved and displayed Base chain gas price in Gwei", "passed": true, "evidence": "0.006 Gwei"},
+    {"text": "All queries were executed on the Base chain, not Ethereum or another chain", "passed": true, "evidence": "Used Base mainnet RPC directly after Etherscan failed"}
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "eval_id": 2,
+  "eval_name": "token-info-base",
+  "prompt": "我想了解一下 Base 链上这个 token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 的基本信息，包括名称、符号、精度和总供应量，还有当前 Base 链的 gas 价格",
+  "assertions": [
+    {
+      "id": "token-name",
+      "text": "Retrieved and displayed the token name (USD Coin / USDC)",
+      "type": "content_check"
+    },
+    {
+      "id": "token-symbol",
+      "text": "Retrieved and displayed the token symbol",
+      "type": "content_check"
+    },
+    {
+      "id": "token-decimals",
+      "text": "Retrieved and displayed the token decimals (should be 6)",
+      "type": "content_check"
+    },
+    {
+      "id": "token-supply",
+      "text": "Retrieved and displayed the total supply as a human-readable number",
+      "type": "content_check"
+    },
+    {
+      "id": "gas-price",
+      "text": "Retrieved and displayed Base chain gas price in Gwei",
+      "type": "content_check"
+    },
+    {
+      "id": "correct-chain",
+      "text": "All queries were executed on the Base chain, not Ethereum or another chain",
+      "type": "content_check"
+    }
+  ]
+}

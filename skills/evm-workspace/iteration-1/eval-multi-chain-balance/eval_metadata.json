@@ -1,0 +1,32 @@
+{
+  "eval_id": 1,
+  "eval_name": "multi-chain-balance",
+  "prompt": "帮我查一下 vitalik.eth 在以太坊主网和 Arbitrum 上的 ETH 余额，顺便看看他在以太坊上持有多少 USDC（合约地址 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48）",
+  "assertions": [
+    {
+      "id": "ens-resolved",
+      "text": "Successfully resolved vitalik.eth to an Ethereum address",
+      "type": "content_check"
+    },
+    {
+      "id": "eth-balance-ethereum",
+      "text": "Retrieved ETH balance on Ethereum mainnet with a numeric value",
+      "type": "content_check"
+    },
+    {
+      "id": "eth-balance-arbitrum",
+      "text": "Retrieved ETH balance on Arbitrum with a numeric value",
+      "type": "content_check"
+    },
+    {
+      "id": "usdc-balance",
+      "text": "Retrieved USDC token balance on Ethereum for the resolved address",
+      "type": "content_check"
+    },
+    {
+      "id": "correct-usdc-contract",
+      "text": "Used the correct USDC contract 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "type": "content_check"
+    }
+  ]
+}

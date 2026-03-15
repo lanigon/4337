@@ -1,0 +1,11 @@
+{
+  "eval_id": 1,
+  "config": "with_skill",
+  "expectations": [
+    {"text": "Successfully resolved vitalik.eth to an Ethereum address", "passed": true, "evidence": "ENS resolved to 0xd8da6bf26964af9d7eed9e03e53415d37aa96045"},
+    {"text": "Retrieved ETH balance on Ethereum mainnet with a numeric value", "passed": true, "evidence": "32.146371 ETH"},
+    {"text": "Retrieved ETH balance on Arbitrum with a numeric value", "passed": true, "evidence": "0.059995 ETH"},
+    {"text": "Retrieved USDC token balance on Ethereum for the resolved address", "passed": true, "evidence": "75,552.264331 USDC"},
+    {"text": "Used the correct USDC contract 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "passed": true, "evidence": "Contract address shown in output table"}
+  ]
+}
