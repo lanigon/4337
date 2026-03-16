@@ -12,24 +12,26 @@ export default function Home() {
 
         {/* Tags */}
         <div className="flex gap-2">
-          {["ERC-4337", "Account Abstraction", "Morph L2"].map((tag) => (
-            <span
-              key={tag}
-              className="px-3 py-1 text-xs tracking-wider uppercase"
-              style={{
-                color: "var(--text-muted)",
-                border: "1px solid var(--border-dim)",
-                fontFamily: "var(--font-geist-mono), monospace",
-              }}
-            >
-              {tag}
-            </span>
-          ))}
+          {["ERC-4337", "Session Keys", "Account Abstraction", "Morph L2"].map(
+            (tag) => (
+              <span
+                key={tag}
+                className="px-3 py-1 text-xs tracking-wider uppercase"
+                style={{
+                  color: "var(--text-muted)",
+                  border: "1px solid var(--border-dim)",
+                  fontFamily: "var(--font-geist-mono), monospace",
+                }}
+              >
+                {tag}
+              </span>
+            )
+          )}
         </div>
 
-        {/* Links */}
+        {/* Link */}
         <div className="flex flex-col gap-3 w-full max-w-sm mt-2">
-          <Link href="/agent-wallet" className="hero-link hero-link-primary">
+          <Link href="/agent" className="hero-link hero-link-primary">
             <span className="flex items-center justify-between">
               <span>
                 <span
@@ -42,29 +44,10 @@ export default function Home() {
                   className="block text-xs mt-0.5"
                   style={{ color: "var(--text-muted)" }}
                 >
-                  ERC-4337 Smart Account Demo
+                  Smart Account + Session Keys on Morph
                 </span>
               </span>
               <span style={{ color: "var(--gold)" }}>&rarr;</span>
-            </span>
-          </Link>
-          <Link href="/biconomy" className="hero-link">
-            <span className="flex items-center justify-between">
-              <span>
-                <span
-                  className="block text-sm font-medium"
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  Biconomy AA
-                </span>
-                <span
-                  className="block text-xs mt-0.5"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  Third-party Bundler Demo
-                </span>
-              </span>
-              <span style={{ color: "var(--text-muted)" }}>&rarr;</span>
             </span>
           </Link>
         </div>
@@ -77,7 +60,7 @@ export default function Home() {
             fontFamily: "var(--font-geist-mono), monospace",
           }}
         >
-          Morph Hoodi Testnet &middot; Chain 2910
+          Morph Mainnet &middot; Chain 2818
         </p>
       </main>
     </div>
