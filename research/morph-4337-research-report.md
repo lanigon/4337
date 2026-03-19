@@ -45,7 +45,23 @@ EntryPoint v0.6.0（已有）
 
 ### 2.1 Coinbase / Base
 
-**策略：全栈自研，标准 ERC-4337**
+**策略：全栈自研，两套产品（链上合约 + Agent 钱包服务）**
+
+Coinbase 有两套互补的方案：
+
+```
+产品 1: CoinbaseSmartWallet (链上合约层)
+  面向: DApp 开发者
+  技术: 标准 ERC-4337
+  认证: Passkey（指纹/面部）
+
+产品 2: AgentKit + Agentic Wallet (Agent 工具层)
+  面向: AI Agent 开发者
+  技术: 基础设施层面的钱包托管
+  认证: 邮箱 OTP / API Key
+```
+
+#### CoinbaseSmartWallet（链上合约）
 
 ```
 架构:
@@ -60,8 +76,6 @@ EntryPoint v0.6.0（已有）
   Base L2
 ```
 
-**核心组件：**
-
 | 组件 | 实现方式 | 开源 |
 |------|---------|:----:|
 | Smart Account | CoinbaseSmartWallet（自研） | ✅ [github.com/coinbase/smart-wallet](https://github.com/coinbase/smart-wallet) |
@@ -70,29 +84,114 @@ EntryPoint v0.6.0（已有）
 | Paymaster | Coinbase 自建（送 0.25 ETH credits） | ❌ |
 | 认证 | WebAuthn Passkey（secp256r1） | ✅ |
 | Session Key | 不支持（用 Passkey 替代） | — |
-| SDK | @coinbase/wallet-sdk | ✅ |
-| 支付 | window.base.pay()（USDC） | — |
-| Agent 工具 | AgentKit | ✅ |
-| 微支付 | x402 协议 | ✅ |
 
-**技术亮点：**
+技术亮点：
 - **双格式 Owner**：同一个 Smart Account 支持 EOA 地址（32 bytes）和 Passkey 公钥（64 bytes）
 - **链上 WebAuthn 验证**：通过 RIP-7212 预编译或 FreshCryptoLib 在链上验证 secp256r1 签名
 - **CREATE2 全链部署**：通过 Safe Singleton Factory 部署到 248 条链，地址统一
-- **零配置 gasless**：开发者注册即送 0.25 ETH gas credits
 
-**合约地址（全链统一，Morph 上已部署）：**
+合约地址（全链统一，Morph 上已部署）：
 ```
 CoinbaseSmartWallet Implementation: 0x000100abaad02f1cfC8Bbe32bD5a564817339E72
 CoinbaseSmartWalletFactory:         0x0BA5ED0c6AA8c49038F819E587E2633c4A9F428a
 EntryPoint v0.6.0:                  0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789
 ```
 
+#### AgentKit（Agent 开发 SDK）
+
+```
+定位: 开发者工具箱，给 AI Agent 加钱包能力
+架构:
+  AI Agent (LangChain / Vercel AI SDK / OpenAI Agents SDK)
+    ↓ 自然语言指令
+  AgentKit Action Provider (50+ 链上操作)
+    ↓ 选择操作（transfer, swap, stake, mint...）
+  Wallet Provider (可选: Coinbase / Privy / Viem)
+    ↓ 构造并签名交易
+  区块链（所有 EVM + Solana）
+```
+
+| 特性 | 说明 |
+|------|------|
+| 语言 | TypeScript + Python |
+| 操作数 | 50+ (TS) / 30+ (Python) |
+| 钱包 | 3 种 provider（Coinbase / Privy / Viem） |
+| 链 | 所有 EVM + Solana |
+| AI 框架 | LangChain, Vercel AI SDK, OpenAI, Pydantic AI, AutoGen |
+| DeFi 集成 | Compound, Morpho, Moonwell, Superfluid, Jupiter |
+| 开源 | ✅ Apache-2.0 |
+
+#### Agentic Wallet（独立 Agent 钱包）
+
+```
+定位: 开箱即用的 Agent 钱包，CLI 直接调用
+架构:
+  AI Agent
+    ↓ awal CLI 或 MCP
+  Agentic Wallet
+    ↓ 私钥隔离在 TEE 安全飞地
+  Coinbase 基础设施
+    ↓ gasless 交易
+  Base L2
+```
+
+| 特性 | 说明 |
+|------|------|
+| 钱包 | Coinbase TEE 托管（私钥不可导出） |
+| 链 | Base 为主 |
+| 认证 | 邮箱 OTP |
+| 安全 | TEE 隔离 + Spending Limits + KYT + OFAC |
+| 功能 | 持有/发送/交易稳定币 + x402 微支付 |
+
+安全模型：
+```
+TEE（Trusted Execution Environment）:
+  ├── 私钥在安全飞地里，永远不进 LLM context
+  └── 即使 Agent 被 prompt injection 攻击，也无法导出私钥
+
+Spending Limits:
+  ├── Per-session 上限（整个会话的总花费）
+  ├── Per-transaction 上限（单笔交易的金额）
+  └── 在基础设施层面强制执行（交易提交前检查，不是链上合约）
+
+KYT (Know Your Transaction):
+  └── 自动阻断高风险交易
+
+OFAC 合规:
+  └── 所有转账自动检查制裁名单
+```
+
+CLI 命令：
+```bash
+npx awal auth login user@email.com   # 邮箱 OTP 登录
+npx awal auth verify <id> <otp>      # 验证
+npx awal address                     # 查钱包地址
+npx awal balance                     # 查余额
+npx awal send 10 0x... --chain base  # 发送 USDC
+npx awal trade 100 USDC ETH         # 交易
+npx awal x402 pay <url>             # x402 微支付
+```
+
+#### AgentKit vs Agentic Wallet vs CoinbaseSmartWallet
+
+| | CoinbaseSmartWallet | AgentKit | Agentic Wallet |
+|---|---|---|---|
+| **类型** | 链上合约 | SDK 工具箱 | 独立钱包产品 |
+| **面向** | DApp 用户 | Agent 开发者 | AI Agent |
+| **钱包** | ERC-4337 SA | 多种 provider | TEE 托管 |
+| **私钥** | 用户设备（Passkey） | 取决于 provider | TEE 隔离 |
+| **Session/Spending** | 不支持 | 取决于 provider | 内置（per-session + per-tx） |
+| **认证** | Passkey（指纹） | API key | 邮箱 OTP |
+| **链** | 248 条 EVM | 所有 EVM + Solana | Base |
+| **gasless** | Paymaster | 通过 Paymaster | 内置 |
+| **x402** | 可集成 | 可集成 | 内置 |
+| **开源** | ✅ 合约 | ✅ SDK | 部分（Skills） |
+
 **文档：**
-- Account Abstraction: https://docs.base.org/chain/account-abstraction
 - Smart Wallet 源码: https://github.com/coinbase/smart-wallet
-- Bundler + Paymaster 示例: https://github.com/coinbase/paymaster-bundler-examples
 - AgentKit: https://github.com/coinbase/agentkit
+- Agentic Wallet: https://docs.cdp.coinbase.com/agentic-wallet/welcome
+- Bundler + Paymaster 示例: https://github.com/coinbase/paymaster-bundler-examples
 - x402: https://www.x402.org/
 
 #### 2.1.1 Base 的 Bundler
@@ -377,19 +476,18 @@ Session 权限模型:
 | **免费额度** | 0.25 ETH credits | 无限（gas 用 USDC 扣） | 自定义 |
 | **配置方式** | Dashboard 设白名单 | 不需要配置 | 自研验证逻辑 |
 
-#### Session Key 对比
+#### Session Key / Spending Control 对比
 
-| | Base (Coinbase) | Polygon (Sequence) | ERC-4337 方案 |
-|---|---|---|---|
-| **支持** | ❌ 不支持 | ✅ Smart Sessions | ✅ 需要自研合约 |
-| **替代方案** | Passkey（每次确认） | — | — |
-| **权限存储** | — | 链下（加密本地文件） | 链上（merkle root） |
-| **权限验证** | — | 链下（Relayer）+ 链上（钱包） | 链上（SessionKeyManager） |
-| **创建方式** | — | 浏览器审批 → 加密回传 | 发 UserOp 上链 |
-| **粒度** | — | per-token limit + 合约白名单 | 合约 + 函数 + 参数级 |
-| **过期** | — | 24h 默认 | 自定义 validUntil |
-| **安全** | — | 加密存储 + 不进 LLM | 链上强制验证 |
-| **适合 Agent** | ❌（需要人按指纹） | ✅ | ✅ |
+| | Base CoinbaseSmartWallet | Base Agentic Wallet | Polygon (Sequence) | ERC-4337 方案 |
+|---|---|---|---|---|
+| **Session Key** | ❌ 不支持 | ❌ 不支持 | ✅ Smart Sessions | ✅ 需要自研合约 |
+| **Spending Limit** | ❌ | ✅ 基础设施层面 | ✅ per-token | ✅ 链上合约 |
+| **私钥安全** | 设备安全芯片（Passkey） | TEE 安全飞地 | 加密本地文件 | 链上 merkle root |
+| **权限验证** | 链上（WebAuthn） | 链下（基础设施） | 链下 + 链上混合 | 链上（SessionKeyManager） |
+| **粒度** | 每次确认 | per-session + per-tx | per-token + 合约白名单 | 合约 + 函数 + 参数级 |
+| **过期** | 无（每次 Passkey） | session 级 | 24h 默认 | 自定义 validUntil |
+| **合规** | 无 | KYT + OFAC 筛查 | 无 | 无 |
+| **适合 Agent** | ❌（需要人按指纹） | ✅ | ✅ | ✅ |
 
 ---
 
