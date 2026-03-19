@@ -450,7 +450,99 @@ Session 权限模型:
   └── 24h 自动过期
 ```
 
-### 2.3 三方对比：Bundler / Paymaster / Session Key
+### 2.3 Biconomy 架构参考（Session Key 链上实现）
+
+Biconomy 是唯一在链上实现 Session Key 的 ERC-4337 方案，虽然其服务已下线，但合约架构值得参考。
+
+#### Smart Account — 可插拔 Module 系统
+
+```
+合约: SmartAccount.sol + ModuleManager.sol
+EntryPoint: v0.6.0
+
+签名验证（可插拔）:
+  function validateUserOp(userOp, userOpHash):
+    从 userOp.signature 解码: moduleSignature + moduleAddress
+    → moduleAddress 决定用哪个验证模块
+    → 调用 activeModule.validateUserOp()
+
+  可用模块:
+    ECDSA Module → EOA 签名验证（默认）
+    SessionKeyManager → Session Key 验证（Agent 场景）
+```
+
+#### Session Key — 链上三层验证
+
+```
+链上存储:
+  SessionKeyManager 合约只存一个 bytes32:
+  mapping(address smartAccount => bytes32 merkleRoot)
+  → 极省 gas，所有规则通过 merkle proof 携带
+
+创建 Session:
+  1. 本地生成 session key EOA（随机密钥对）
+  2. 定义 policy（合约、函数、参数约束、花费上限、时间范围）
+  3. 编码成 leaf → 构建 Merkle Tree → 算出 root
+  4. Owner 发 UserOp: SessionKeyManager.setMerkleRoot(root)
+  5. 私钥存本地，merkle proof 存本地
+
+Agent 使用 Session Key 时的链上验证（三层）:
+
+  第 1 层 — SessionKeyManager.validateUserOp():
+    从 signature 解出: validUntil, validAfter, svm, keyData, proof[], sig
+    重建 leafHash = keccak256(validUntil + validAfter + svm + keyData)
+    MerkleProof.verify(proof, storedRoot, leafHash)
+    → 验证 Owner 确实授权过
+
+  第 2 层 — 时间验证:
+    require(block.timestamp >= validAfter)
+    require(block.timestamp <= validUntil || validUntil == 0)
+    → 验证没过期
+
+  第 3 层 — ABISessionValidationModule.validateSessionUserOp():
+    从 SA 的 execute callData 提取:
+      destContract ← 目标合约
+      callValue    ← ETH 金额
+      data         ← 内部 calldata
+    验证:
+      destContract == policy.contractAddress ?
+      data[0:4] == policy.functionSelector ?
+      callValue <= policy.valueLimit ?
+      每条 rule: data[offset:offset+32] 满足 condition(value) ?
+    验证签名:
+      ECDSA.recover(toEthSignedMessageHash(userOpHash), sig) == sessionKey ?
+
+sessionKeyData 编码格式:
+  偏移 0x00: session key 地址   (20 bytes)
+  偏移 0x14: 目标合约地址        (20 bytes)
+  偏移 0x28: 函数选择器          (4 bytes)
+  偏移 0x2c: 花费上限            (16 bytes, uint128)
+  偏移 0x3c: rules 数量          (2 bytes, uint16)
+  偏移 0x3e: rule[0]             (35 bytes: offset 2 + condition 1 + value 32)
+
+  rule 的 condition:
+    0 = EQUAL
+    1 = LESS_THAN_OR_EQUAL
+    2 = LESS_THAN
+    3 = GREATER_THAN_OR_EQUAL
+    4 = GREATER_THAN
+    5 = NOT_EQUAL
+```
+
+### 2.4 Smart Account 实现对比
+
+| | Base | Polygon | Biconomy |
+|---|---|---|---|
+| **标准** | ERC-4337 | 非标准 | ERC-4337 |
+| **EntryPoint** | v0.6 | 不用 | v0.6 |
+| **多 Owner** | ✅ (bytes[]) | ✅ (多签) | ❌ (单 owner + module) |
+| **Passkey** | ✅ (WebAuthn secp256r1) | ❌ | ❌ |
+| **Module 系统** | ❌ (不可扩展) | ✅ | ✅ (可插拔) |
+| **签名验证** | 硬编码 2 种路径 | 钱包内部多签 | 可插拔 module 决定 |
+| **Session Key** | ❌ | 链下 (Relayer) | 链上 (Merkle + ABI SVM) |
+| **开源** | ✅ | 部分 | ✅ |
+
+### 2.5 三方对比：Bundler / Paymaster / Session Key
 
 #### Bundler 对比
 
