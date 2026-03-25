@@ -1,0 +1,28 @@
+{
+  "name": "morph-skill",
+  "description": "Wallet operations, on-chain explorer queries, DEX swap execution, cross-chain bridge swap, and alt-fee gas payment on Morph L2",
+  "version": "1.3.0",
+  "author": {
+    "name": "Morph"
+  },
+  "homepage": "https://morph.network/",
+  "repository": "https://github.com/morph-l2/morph-skill",
+  "license": "MIT",
+  "keywords": [
+    "morph",
+    "l2",
+    "blockchain",
+    "web3",
+    "defi",
+    "swap",
+    "dex",
+    "altfee",
+    "bridge",
+    "cross-chain",
+    "wallet",
+    "explorer",
+    "token",
+    "transaction"
+  ],
+  "skills": ["./skills/"]
+}

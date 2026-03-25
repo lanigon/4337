@@ -1,0 +1,16 @@
+{
+  "name": "agent-hub",
+  "private": true,
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "dev": "pnpm -r --parallel dev",
+    "test": "pnpm -r run test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "bitget-api-node-sdk": "^2.1.4"
+  }
+}

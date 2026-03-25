@@ -1,0 +1,1381 @@
+#!/usr/bin/env python3
+"""
+morph_api.py — Morph Mainnet CLI / AI-Agent Skill
+
+Interact with Morph L2 (Chain ID 2818) via public RPC, Blockscout Explorer
+API, and DEX API.  All amounts use human-readable units (ETH, not wei).
+Output is always JSON for easy agent parsing.
+
+Dependencies:
+    pip install requests eth_account
+"""
+
+import argparse
+import json
+import sys
+import re
+import time
+import requests
+from decimal import Decimal
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+RPC_URL = "https://rpc.morph.network/"
+EXPLORER_API = "https://explorer-api.morph.network/api/v2"
+DEX_API = "https://api.bulbaswap.io"
+CHAIN_ID = 2818
+
+NATIVE_TOKEN = "0x0000000000000000000000000000000000000000"
+
+# ---------------------------------------------------------------------------
+# Multi-chain token registry for bridge commands
+# Source: bgw /swap-go/swapx/getTokenList
+# Keys use original symbol casing from source. Native tokens use "".
+# ---------------------------------------------------------------------------
+
+BRIDGE_TOKENS = {
+    "morph": {
+        "ETH": "",
+        "USDT.e": "0xc7D67A9cBB121b3b0b9c053DD9f469523243379A",
+        "USDT0": "0xe7cd86e13AC4309349F30B3435a9d337750fC82D",
+        "USDC": "0xCfb1186F4e93D60E60a8bDd997427D1F33bc372B",
+        "USDC.e": "0xe34c91815d7fc18A9e2148bcD4241d0a5848b693",
+        "BGB": "0x389C08Bc23A7317000a1FD76c7c5B0cb0b4640b5",
+        "BGB(old)": "0x55d1f1879969bdbB9960d269974564C58DBc3238",
+        "KOALA": "0x051bc29e6d13671f6bcbd8be8bb7d889e0d89079",
+        "BAI": "0xe2e7d83dfbd25407045fd061e4c17cc76007dead",
+        "MX": "0x0beef4b01281d85492713a015d51fec5b6d14687",
+        "BGLIFE": "0x341270fEc15C43c5F150fc648dB33890E54E1111",
+    },
+    "eth": {
+        "ETH": "",
+        "USDT": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+        "USDC": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+        "WBTC": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
+        "DAI": "0x6b175474e89094c44da98b954eedeac495271d0f",
+        "BGB": "0x54D2252757e1672EEaD234D27B1270728fF90581",
+        "LINK": "0x514910771af9ca656af840dff83e8264ecf986ca",
+        "UNI": "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984",
+        "WTAO": "0x77e06c9eccf2e797fd462a92b6d7642ef85b0a44",
+        "PRIME": "0xb23d80f5fefcddaa212212f028021b41ded428cf",
+        "PEPE": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+        "RNDR": "0x6de037ef9ad2725eb40118bb1702ebb27e4aeb24",
+        "EIGEN": "0xec53bf9167f50cdeb3ae105f56099aaab9061f83",
+        "NEIRO": "0x812ba41e071c7b7fa4ebcfb62df5f45f6fa853ee",
+        "SPX": "0xe0f63a424a4439cbe457d80e4f4b51ad25b2c56c",
+        "ONDO": "0xfaba6f8e4a5e8ab82f62fe7c39859fa577269be3",
+        "INJ": "0xe28b3b32b6c345a34ff64674606124dd5aceca30",
+        "FET": "0xaea46a60368a7bd060eec7df8cba43b7ef41ad85",
+        "PAAL": "0x14fee680690900ba0cccfc76ad70fd1b95d10e16",
+        "LDO": "0x5a98fcbea516cf06857215779fd812ca3bef1b32",
+        "FLOKI": "0xcf0c122c6b73ff809c693db761e7baebe62b6a2e",
+    },
+    "base": {
+        "ETH": "",
+        "USDC": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "USDT": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+        "WETH": "0x4200000000000000000000000000000000000006",
+        "DAI": "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb",
+        "MOEW": "0x15aC90165f8B45A80534228BdCB124A011F62Fee",
+        "VIRTUAL": "0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b",
+        "cbBTC": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+        "ROLL": "0xAb6363dA0C80cEF3Ae105Bd6241E30872355d021",
+        "AERO": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+        "AVNT": "0x696F9436B67233384889472Cd7cD58A6fB5DF4f1",
+        "ZORA": "0x1111111111166b7fe7bd91427724b487980afc69",
+        "KTA": "0xc0634090F2Fe6c6d75e61Be2b949464aBB498973",
+        "RECALL": "0x1f16e03C1a590818F47f6EE7bB16690b40D0671",
+        "ELSA": "0x29cC30f9D113B356Ce408667aa6433589CeCBDcA",
+        "ZEN": "0xf43eb8de897fbc7f2502483b2bef7bb9ea179229",
+    },
+    "matic": {
+        "POL": "",
+        "MATIC": "",  # alias for native
+        "USDT0": "0xc2132d05d31c914a87c6611c10748aeb04b58e8f",
+        "USDC": "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359",
+        "WETH": "0x7ceb23fd6bc0add59e62ac25578270cff1b9f619",
+        "WBTC": "0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6",
+        "USDC.e": "0x2791bca1f2de4661ed88a30c99a7a9449aa84174",
+        "QUICK": "0xb5c064f955d8e7f38fe0460c556a72987494ee17",
+        "AAVE": "0xd6df932a45c0f255f85145f286ea0b292b21c90b",
+        "LGNS": "0xeb51d9a39ad5eef215dc0bf39a8821ff804a0f01",
+        "DAI": "0x8f3cf7ad23cd3cadbD9735AFf958023239c6a063",
+        "APEPE": "0xA3f751662e282E83EC3cBc387d225Ca56dD63D3A",
+        "IXT": "0xe06bd4f5aac8d0aa337d13ec88db6defc6eaeefe",
+        "RNDR": "0x61299774020da444af134c82fa83e3810b309991",
+        "LINK": "0x53e0bca35ec356bd5dddfebbd1fc0fd03fabad39",
+        "GHST": "0x385eeac5cb85a38a9a07a70c73e0a3271cfb54a7",
+        "VOXEL": "0xd0258a3fd00f38aa8090dfee343f10a9d4d30d3f",
+        "GNS": "0xE5417Af564e4bFDA1c483642db72007871397896",
+        "WIFI": "0xe238ecb42c424e877652ad82d8a939183a04c35f",
+        "TEL": "0xdf7837de1f2fa4631d716cf2502f8b230f1dcc32",
+        "LDO": "0xc3c7d422809852031b44ab29eec9f1eff2a58756",
+    },
+    "bnb": {
+        "BNB": "",
+        "USDT": "0x55d398326f99059ff775485246999027b3197955",
+        "USDC": "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
+        "BTCB": "0x7130d2a12b9bcbfae4f2634d864a1ee1ce3ead9c",
+        "Cake": "0x0e09fabb73bd3ade0a17ecc321fd13a19e81ce82",
+        "ETH": "0x2170ed0880ac9a755fd29b2688956bd959f933f8",
+        "DOGE": "0xba2ae424d960c26247dd6c32edc70b295c744c43",
+        "ADA": "0x3ee2200efb3400fabb9aacf31297cbdd1d435d47",
+        "XRP": "0x1d2f0da169ceb9fc7b3144628db156f3f6c60dbe",
+        "AIO": "0x81a7da4074b8e0ed51bea40f9dcbdf4d9d4832b4",
+        "AT": "0x9be61A38725b265BC3eb7Bfdf17AfDFc9D26C130",
+        "ASTER": "0x000Ae314E2A2172a039B26378814C252734f556A",
+        "LIGHT": "0x477C2c0459004E3354Ba427FA285D7C053203c0E",
+        "SKYAI": "0x92aa03137385f18539301349dcfc9ebc923ffb10",
+        "RTX": "0x4829A1D1fB6DED1F81d26868ab8976648baF9893",
+        "elizaOS": "0xea17df5cf6d172224892b5477a16acb111182478",
+        "$AIAV": "0x76CC9E532Bb6803EFc3d7766ac16A884a015951f",
+        "SENTIS": "0x8fd0d741e09a98e82256c63f25f90301ea71a83e",
+        "PIEVERSE": "0x0E63B9C287E32A05E6b9AB8ee8dF88A2760225A9",
+        "MYX": "0xD82544bf0dfe8385eF8FA34D67e6e4940CC63e16",
+    },
+    "arbitrum": {
+        "ETH": "",
+        "USDT0": "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9",
+        "USDC": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+        "ARB": "0x912CE59144191C1204E64559FE8253a0e49E6548",
+        "WBTC": "0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f",
+        "GMX": "0xfc5a1a6eb076a2c7ad06ed22c90d7e710e35ad0a",
+        "MAGIC": "0x539bdE0d7Dbd336b79148AA742883198BBF60342",
+        "ZRO": "0x6985884C4392D348587B19cb9eAAf157F13271cd",
+        "RDNT": "0x3082cc23568ea640225c2467653db90e9250aaa0",
+        "VSN": "0x6fbbbd8bfb1cd3986b1d05e7861a0f62f87db74b",
+        "PENDLE": "0x0c880f6761f1af8d9aa9c466984b80dab9a8c9e8",
+        "ezETH": "0x2416092f143378750bb29b79eD961ab195cCEea5",
+        "LINK": "0xf97f4df75117a78c1a5a0dbb814af92458539fb4",
+        "MOR": "0x092bAaDB7DEf4C3981454dD9c0A0D7FF07bCFc86",
+        "GRT": "0x9623063377ad1b27544c965ccd7342f7ea7e88c7",
+        "XAI": "0x4Cb9a7AE498CEDcBb5EAe9f25736aE7d428C9D66",
+        "GNS": "0x18c11fd286c5ec11c3b683caa813b77f5163a122",
+    },
+}
+
+# Build case-insensitive lookup: {chain: {SYMBOL_UPPER: address}}
+_BRIDGE_TOKENS_UPPER = {
+    chain: {k.upper(): v for k, v in tokens.items()}
+    for chain, tokens in BRIDGE_TOKENS.items()
+}
+
+# Morph ERC20 tokens for wallet/DEX commands (derived from BRIDGE_TOKENS, excludes native ETH)
+KNOWN_TOKENS = {k: v for k, v in BRIDGE_TOKENS["morph"].items() if v}
+_KNOWN_TOKENS_UPPER = {k.upper(): v for k, v in KNOWN_TOKENS.items()}
+
+ERC20_BALANCE_OF_SIG = "0x70a08231"
+ERC20_DECIMALS_SIG   = "0x313ce567"
+ERC20_TRANSFER_SIG   = "0xa9059cbb"
+
+# TokenRegistry contract (Morph pre-deploy)
+TOKEN_REGISTRY = "0x5300000000000000000000000000000000000021"
+TR_GET_TOKEN_LIST_SIG      = "0x1585458c"  # getSupportedTokenList()
+TR_GET_TOKEN_INFO_SIG      = "0x1c58e793"  # getTokenInfo(uint16)
+TR_PRICE_RATIO_SIG         = "0x19904c33"  # priceRatio(uint16)
+
+# ---------------------------------------------------------------------------
+# Helpers — output
+# ---------------------------------------------------------------------------
+
+def _ok(data):
+    print(json.dumps({"success": True, "data": data}, indent=2, default=str))
+    sys.exit(0)
+
+def _err(msg):
+    print(json.dumps({"success": False, "error": str(msg)}, indent=2))
+    sys.exit(1)
+
+# ---------------------------------------------------------------------------
+# Helpers — RPC
+# ---------------------------------------------------------------------------
+
+_rpc_id = 0
+
+def rpc_call(method, params=None):
+    global _rpc_id
+    _rpc_id += 1
+    payload = {
+        "jsonrpc": "2.0",
+        "id": _rpc_id,
+        "method": method,
+        "params": params or [],
+    }
+    try:
+        r = requests.post(RPC_URL, json=payload, timeout=30)
+        r.raise_for_status()
+        body = r.json()
+        if "error" in body:
+            _err(f"RPC error: {body['error']}")
+        return body.get("result")
+    except requests.RequestException as e:
+        _err(f"RPC request failed: {e}")
+
+# ---------------------------------------------------------------------------
+# Helpers — Explorer (Blockscout v2)
+# ---------------------------------------------------------------------------
+
+def explorer_get(path, params=None):
+    url = f"{EXPLORER_API}{path}"
+    try:
+        r = requests.get(url, params=params, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except requests.RequestException as e:
+        _err(f"Explorer request failed: {e}")
+
+# ---------------------------------------------------------------------------
+# Helpers — DEX
+# ---------------------------------------------------------------------------
+
+def dex_get(path, params=None):
+    url = f"{DEX_API}{path}"
+    try:
+        r = requests.get(url, params=params, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except requests.RequestException as e:
+        _err(f"DEX request failed: {e}")
+
+def dex_expect_success(data):
+    """Fail fast when DEX API returns business error code with HTTP 200."""
+    if isinstance(data, dict) and "code" in data and data.get("code") != 0:
+        _err(f"DEX API error {data.get('code')}: {data.get('msg')}")
+
+# ---------------------------------------------------------------------------
+# Helpers — Bridge (Cross-Chain Swap)
+# ---------------------------------------------------------------------------
+
+def bridge_post(path, data):
+    """POST request to Cross-Chain Swap API."""
+    url = f"{DEX_API}{path}"
+    try:
+        r = requests.post(url, json=data, timeout=30)
+        r.raise_for_status()
+        resp = r.json()
+        if resp.get("status") != 0:
+            _err(f"Bridge API error {resp.get('error_code')}: {resp.get('msg')}")
+        return resp.get("data")
+    except requests.RequestException as e:
+        _err(f"Bridge request failed: {e}")
+
+def bridge_get(path):
+    """GET request to Cross-Chain Swap API."""
+    url = f"{DEX_API}{path}"
+    try:
+        r = requests.get(url, timeout=30)
+        r.raise_for_status()
+        resp = r.json()
+        if resp.get("status") != 0:
+            _err(f"Bridge API error {resp.get('error_code')}: {resp.get('msg')}")
+        return resp.get("data")
+    except requests.RequestException as e:
+        _err(f"Bridge request failed: {e}")
+
+def _generate_auth_message(timestamp):
+    """Generate Bulba auth message for signing."""
+    return (
+        "Welcome to Bulba.\n\n"
+        "Please sign this message to verify your wallet.\n\n"
+        f"Timestamp: {timestamp}.\n\n"
+        "Your authentication status will be reset after 24 hours."
+    )
+
+def bridge_post_auth(path, data, token):
+    """POST request to Bridge API with JWT auth."""
+    url = f"{DEX_API}{path}"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        r = requests.post(url, json=data, headers=headers, timeout=30)
+        r.raise_for_status()
+        resp = r.json()
+        if resp.get("status") != 0:
+            _err(f"Bridge API error {resp.get('error_code')}: {resp.get('msg')}")
+        return resp.get("data")
+    except requests.RequestException as e:
+        _err(f"Bridge request failed: {e}")
+
+# ---------------------------------------------------------------------------
+# Helpers — Token utilities
+# ---------------------------------------------------------------------------
+
+_HEX_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
+
+def resolve_token(symbol_or_address):
+    """Resolve a token symbol or contract address.
+
+    - 'ETH' or '' → native token (zero address)
+    - '0x...' (42 hex chars) → validated and used as-is
+    - known symbol (e.g. 'USDT0') → looked up from verified list
+    """
+    if symbol_or_address == "" or symbol_or_address.upper() == "ETH":
+        return NATIVE_TOKEN
+    if symbol_or_address.startswith("0x"):
+        if not _HEX_ADDRESS_RE.match(symbol_or_address):
+            _err(f"Invalid address: {symbol_or_address}. Must be 0x followed by 40 hex characters.")
+        return symbol_or_address
+    upper = symbol_or_address.upper()
+    if upper in _KNOWN_TOKENS_UPPER:
+        return _KNOWN_TOKENS_UPPER[upper]
+    _err(f"Unknown token: {symbol_or_address}. Known symbols: {', '.join(['ETH'] + list(KNOWN_TOKENS.keys()))}. Or pass a contract address (0x...).")
+
+def resolve_erc20_token(symbol_or_address):
+    """Resolve token and reject native ETH for ERC20-only commands."""
+    token = resolve_token(symbol_or_address)
+    if token == NATIVE_TOKEN:
+        _err("ETH is a native token, not ERC20. Use `balance`/`transfer` for ETH, or pass an ERC20 token address/symbol.")
+    return token
+
+def token_for_dex(token_address):
+    """Bulbaswap v2 uses literal ETH for native token, not zero-address."""
+    return "ETH" if token_address == NATIVE_TOKEN else token_address
+
+def get_token_decimals(token_address):
+    """Query ERC20 decimals via RPC."""
+    result = rpc_call("eth_call", [
+        {"to": token_address, "data": ERC20_DECIMALS_SIG},
+        "latest",
+    ])
+    if result and result != "0x":
+        return int(result, 16)
+    return 18  # default
+
+def wei_to_ether(wei_hex):
+    """Convert hex wei string to human-readable ETH string."""
+    wei = int(wei_hex, 16)
+    return str(Decimal(wei) / Decimal(10**18))
+
+def to_wei(amount_str, decimals=18):
+    """Convert human-readable amount to integer wei."""
+    result = int(Decimal(amount_str) * Decimal(10**decimals))
+    if result < 0:
+        _err(f"Amount must not be negative, got: {amount_str}")
+    return result
+
+def validate_address(addr):
+    """Validate an Ethereum address (0x + 40 hex chars). Returns the address or calls _err."""
+    if not _HEX_ADDRESS_RE.match(addr):
+        _err(f"Invalid address: {addr}. Must be 0x followed by 40 hex characters.")
+    return addr
+
+def pad_address(addr):
+    """Left-pad a validated address to 32 bytes for ABI encoding."""
+    validate_address(addr)
+    return "0x" + addr.lower().replace("0x", "").zfill(64)
+
+def _load_account(private_key):
+    """Load an Account from a private key, returning JSON error on invalid input."""
+    try:
+        from eth_account import Account
+    except ImportError:
+        _err("eth_account is required: pip install eth_account")
+    try:
+        return Account.from_key(private_key)
+    except Exception as e:
+        _err(f"Invalid private key: {e}")
+
+# ---------------------------------------------------------------------------
+# Commands — Wallet (RPC)
+# ---------------------------------------------------------------------------
+
+def cmd_create_wallet(_args):
+    """Generate a new Ethereum key pair locally."""
+    try:
+        from eth_account import Account
+    except ImportError:
+        _err("eth_account is required: pip install eth_account")
+    acct = Account.create()
+    _ok({
+        "address": acct.address,
+        "private_key": acct.key.hex(),
+        "warning": "Store your private key securely. Never share it.",
+    })
+
+def cmd_balance(args):
+    """Query native ETH balance."""
+    result = rpc_call("eth_getBalance", [args.address, "latest"])
+    _ok({
+        "address": args.address,
+        "balance_eth": wei_to_ether(result),
+        "balance_wei": str(int(result, 16)),
+    })
+
+def cmd_token_balance(args):
+    """Query ERC20 token balance."""
+    token = resolve_erc20_token(args.token)
+    data = ERC20_BALANCE_OF_SIG + pad_address(args.address)[2:]
+    result = rpc_call("eth_call", [{"to": token, "data": data}, "latest"])
+    decimals = get_token_decimals(token)
+    raw = int(result, 16) if result and result != "0x" else 0
+    human = str(Decimal(raw) / Decimal(10**decimals))
+    _ok({
+        "address": args.address,
+        "token": token,
+        "balance": human,
+        "balance_raw": str(raw),
+        "decimals": decimals,
+    })
+
+def cmd_transfer(args):
+    """Sign and send an ETH transfer transaction."""
+    validate_address(args.to)
+    acct = _load_account(args.private_key)
+    value_wei = to_wei(args.amount)
+    nonce = rpc_call("eth_getTransactionCount", [acct.address, "latest"])
+    gas_price = rpc_call("eth_gasPrice", [])
+
+    tx = {
+        "chainId": CHAIN_ID,
+        "nonce": int(nonce, 16),
+        "to": args.to,
+        "value": value_wei,
+        "gas": 21000,
+        "gasPrice": int(gas_price, 16),
+    }
+    signed = acct.sign_transaction(tx)
+    tx_hash = rpc_call("eth_sendRawTransaction", ["0x" + signed.raw_transaction.hex()])
+    _ok({
+        "tx_hash": tx_hash,
+        "from": acct.address,
+        "to": args.to,
+        "amount_eth": args.amount,
+    })
+
+def cmd_transfer_token(args):
+    """Sign and send an ERC20 transfer transaction."""
+    validate_address(args.to)
+    token = resolve_erc20_token(args.token)
+    decimals = get_token_decimals(token)
+    amount_raw = to_wei(args.amount, decimals)
+
+    acct = _load_account(args.private_key)
+    nonce = rpc_call("eth_getTransactionCount", [acct.address, "latest"])
+    gas_price = rpc_call("eth_gasPrice", [])
+
+    # ERC20 transfer(address,uint256) calldata
+    calldata = (
+        ERC20_TRANSFER_SIG
+        + pad_address(args.to)[2:]
+        + hex(amount_raw)[2:].zfill(64)
+    )
+
+    # Estimate gas
+    gas_est = rpc_call("eth_estimateGas", [{
+        "from": acct.address,
+        "to": token,
+        "data": calldata,
+    }])
+
+    tx = {
+        "chainId": CHAIN_ID,
+        "nonce": int(nonce, 16),
+        "to": token,
+        "value": 0,
+        "gas": int(gas_est, 16),
+        "gasPrice": int(gas_price, 16),
+        "data": calldata,
+    }
+    signed = acct.sign_transaction(tx)
+    tx_hash = rpc_call("eth_sendRawTransaction", ["0x" + signed.raw_transaction.hex()])
+    _ok({
+        "tx_hash": tx_hash,
+        "from": acct.address,
+        "to": args.to,
+        "token": token,
+        "amount": args.amount,
+    })
+
+def cmd_tx_receipt(args):
+    """Query transaction receipt."""
+    result = rpc_call("eth_getTransactionReceipt", [args.hash])
+    if result is None:
+        _err("Transaction not found or still pending")
+    _ok(result)
+
+# ---------------------------------------------------------------------------
+# Commands — Explorer (Blockscout)
+# ---------------------------------------------------------------------------
+
+def cmd_address_info(args):
+    """Get address summary from Blockscout."""
+    data = explorer_get(f"/addresses/{args.address}")
+    _ok(data)
+
+def cmd_address_txs(args):
+    """List transactions for an address."""
+    data = explorer_get(f"/addresses/{args.address}/transactions")
+    if args.limit and isinstance(data, dict) and "items" in data:
+        data["items"] = data["items"][:int(args.limit)]
+    _ok(data)
+
+def cmd_address_tokens(args):
+    """List token holdings for an address."""
+    data = explorer_get(f"/addresses/{args.address}/token-balances")
+    _ok(data)
+
+def cmd_tx_detail(args):
+    """Get full transaction details from Blockscout."""
+    data = explorer_get(f"/transactions/{args.hash}")
+    _ok(data)
+
+def cmd_token_search(args):
+    """Search tokens by name or symbol."""
+    data = explorer_get("/tokens", {"q": args.query})
+    _ok(data)
+
+def cmd_contract_info(args):
+    """Get smart contract info: source code, ABI, verification status, compiler."""
+    addr = validate_address(args.address)
+    data = explorer_get(f"/smart-contracts/{addr}")
+    if not data or (isinstance(data, dict) and data.get("message")):
+        _err(f"Contract not found or not verified at {addr}")
+    _ok({
+        "address": addr,
+        "name": data.get("name"),
+        "is_verified": data.get("is_verified"),
+        "is_proxy": data.get("proxy_type") is not None,
+        "proxy_type": data.get("proxy_type"),
+        "implementations": data.get("implementations", []),
+        "compiler_version": data.get("compiler_version"),
+        "optimization_enabled": data.get("optimization_enabled"),
+        "evm_version": data.get("evm_version"),
+        "license_type": data.get("license_type"),
+        "abi": data.get("abi"),
+        "source_code": data.get("source_code"),
+    })
+
+def cmd_token_transfers(args):
+    """Get recent token transfers for a token or address."""
+    if args.token:
+        token = resolve_erc20_token(args.token)
+        data = explorer_get(f"/tokens/{token}/transfers")
+    elif args.address:
+        validate_address(args.address)
+        data = explorer_get(f"/addresses/{args.address}/token-transfers")
+    else:
+        _err("Provide --token or --address")
+
+    items = data.get("items", []) if isinstance(data, dict) else []
+    transfers = []
+    for t in items:
+        total = t.get("total", {})
+        decimals = int(total.get("decimals") or 18)
+        raw_value = int(total.get("value") or 0)
+        human_value = str(Decimal(raw_value) / Decimal(10**decimals))
+
+        token_info = t.get("token", {})
+        transfers.append({
+            "tx_hash": t.get("transaction_hash"),
+            "from": t.get("from", {}).get("hash"),
+            "to": t.get("to", {}).get("hash"),
+            "token_symbol": token_info.get("symbol"),
+            "token_address": token_info.get("address_hash"),
+            "amount": human_value,
+            "amount_raw": str(raw_value),
+            "method": t.get("method"),
+            "timestamp": t.get("timestamp"),
+            "block_number": t.get("block_number"),
+        })
+    _ok({"transfers": transfers, "count": len(transfers)})
+
+def cmd_token_info(args):
+    """Get token details: name, symbol, supply, holders, transfers."""
+    token = resolve_erc20_token(args.token)
+    data = explorer_get(f"/tokens/{token}")
+    counters = explorer_get(f"/tokens/{token}/counters")
+
+    decimals = int(data.get("decimals") or 18)
+    total_supply_raw = int(data.get("total_supply") or 0)
+    total_supply = str(Decimal(total_supply_raw) / Decimal(10**decimals))
+
+    _ok({
+        "address": data.get("address_hash", token),
+        "name": data.get("name"),
+        "symbol": data.get("symbol"),
+        "type": data.get("type"),
+        "decimals": decimals,
+        "total_supply": total_supply,
+        "holders_count": counters.get("token_holders_count"),
+        "transfers_count": counters.get("transfers_count"),
+        "exchange_rate": data.get("exchange_rate"),
+        "volume_24h": data.get("volume_24h"),
+        "circulating_market_cap": data.get("circulating_market_cap"),
+        "icon_url": data.get("icon_url"),
+    })
+
+def cmd_token_list(_args):
+    """List top tracked tokens from the explorer (single page)."""
+    data = explorer_get("/tokens")
+    _ok(data)
+
+# ---------------------------------------------------------------------------
+# Commands — DEX
+# ---------------------------------------------------------------------------
+
+def cmd_dex_quote(args):
+    """Get a swap quote from the DEX aggregator."""
+    token_in = token_for_dex(resolve_token(args.token_in))
+    token_out = token_for_dex(resolve_token(args.token_out))
+    params = {
+        "tokenInAddress": token_in,
+        "tokenOutAddress": token_out,
+        "amount": str(args.amount),
+        "slippage": args.slippage or "1",
+        "deadline": args.deadline,
+        "protocols": args.protocols,
+    }
+    if args.recipient:
+        params["recipient"] = args.recipient
+    data = dex_get("/v2/quote", params)
+    dex_expect_success(data)
+    _ok(data)
+
+def cmd_dex_send(args):
+    """Sign and broadcast a DEX swap transaction using calldata from dex-quote."""
+    validate_address(args.to)
+    acct = _load_account(args.private_key)
+    nonce = rpc_call("eth_getTransactionCount", [acct.address, "latest"])
+    gas_price = rpc_call("eth_gasPrice", [])
+
+    value_wei = to_wei(args.value) if args.value else 0
+
+    # Estimate gas
+    tx_for_estimate = {
+        "from": acct.address,
+        "to": args.to,
+        "data": args.data,
+    }
+    if value_wei > 0:
+        tx_for_estimate["value"] = hex(value_wei)
+    gas_est = rpc_call("eth_estimateGas", [tx_for_estimate])
+
+    tx = {
+        "chainId": CHAIN_ID,
+        "nonce": int(nonce, 16),
+        "to": args.to,
+        "value": value_wei,
+        "gas": int(gas_est, 16),
+        "gasPrice": int(gas_price, 16),
+        "data": args.data,
+    }
+    signed = acct.sign_transaction(tx)
+    tx_hash = rpc_call("eth_sendRawTransaction", ["0x" + signed.raw_transaction.hex()])
+    _ok({
+        "tx_hash": tx_hash,
+        "from": acct.address,
+        "to": args.to,
+        "value_eth": args.value or "0",
+        "gas": int(gas_est, 16),
+    })
+
+# ---------------------------------------------------------------------------
+# Commands — Bridge (Cross-Chain Swap)
+# ---------------------------------------------------------------------------
+
+def _resolve_bridge_token(symbol_or_address, chain=None):
+    """Resolve token for bridge API using multi-chain registry.
+
+    Looks up symbol in BRIDGE_TOKENS[chain] (case-insensitive). Native tokens
+    (ETH/BNB/POL) resolve to "" per chain. Falls back to morph if no chain.
+    """
+    if not symbol_or_address or symbol_or_address.upper() == "NATIVE":
+        return ""
+    if symbol_or_address.startswith("0x"):
+        if not _HEX_ADDRESS_RE.match(symbol_or_address):
+            _err(f"Invalid address: {symbol_or_address}. Must be 0x followed by 40 hex characters.")
+        return symbol_or_address
+    upper = symbol_or_address.upper()
+    if chain:
+        chain_tokens = _BRIDGE_TOKENS_UPPER.get(chain.lower(), {})
+        if upper in chain_tokens:
+            return chain_tokens[upper]
+        # Show available symbols using original casing from BRIDGE_TOKENS
+        orig_tokens = BRIDGE_TOKENS.get(chain.lower(), {})
+        available = sorted(set(orig_tokens.keys()) - {"MATIC"})  # hide alias
+        hint = f" Known symbols on {chain}: {', '.join(available[:15])}." if available else ""
+        _err(f"Unknown token '{symbol_or_address}' on chain '{chain}'.{hint} "
+             f"Use a contract address (0x...) or: bridge-token-search --keyword {symbol_or_address} --chain {chain}")
+    # No chain — default to morph
+    morph_tokens = _BRIDGE_TOKENS_UPPER.get("morph", {})
+    if upper in morph_tokens:
+        return morph_tokens[upper]
+    _err(f"Unknown token: {symbol_or_address}. Provide a chain to resolve by chain, "
+         f"use a contract address (0x...), or: bridge-token-search --keyword {symbol_or_address}")
+
+def cmd_bridge_chains(_args):
+    """List supported chains for cross-chain swap."""
+    data = bridge_get("/v2/order/chainList")
+    _ok(data)
+
+def cmd_bridge_tokens(args):
+    """List available tokens for cross-chain swap on a given chain."""
+    body = {}
+    if args.chain:
+        body["chain"] = args.chain
+    data = bridge_post("/v2/order/tokenList", body)
+    _ok(data)
+
+def cmd_bridge_token_search(args):
+    """Search tokens by symbol or contract address across chains."""
+    body = {"keyword": args.keyword}
+    if args.chain:
+        body["chain"] = args.chain
+    data = bridge_post("/v2/order/tokenSearch", body)
+    _ok(data)
+
+def cmd_bridge_quote(args):
+    """Get a cross-chain or same-chain swap quote."""
+    from_token = _resolve_bridge_token(args.from_token, chain=args.from_chain)
+    to_token = _resolve_bridge_token(args.to_token, chain=args.to_chain)
+    body = {
+        "fromChain": args.from_chain,
+        "fromContract": from_token,
+        "fromAmount": str(args.amount),
+        "toChain": args.to_chain,
+        "toContract": to_token,
+        "fromAddress": args.from_address,
+    }
+    data = bridge_post("/v2/order/getSwapPrice", body)
+    _ok(data)
+
+def cmd_bridge_balance(args):
+    """Query token balance and USD price via bridge API."""
+    token = _resolve_bridge_token(args.token, chain=args.chain)
+    body = {
+        "list": [{
+            "chain": args.chain,
+            "tokenAddress": token,
+            "address": args.address,
+        }],
+    }
+    data = bridge_post("/v2/order/tokenBalancePrice", body)
+    _ok(data)
+
+def cmd_bridge_login(args):
+    """Sign in with EIP-191 signature to get a JWT access token."""
+    from eth_account.messages import encode_defunct
+    acct = _load_account(args.private_key)
+    timestamp = int(time.time() * 1000)
+    message = _generate_auth_message(timestamp)
+    signable = encode_defunct(text=message)
+    signed = acct.sign_message(signable)
+    sig_hex = signed.signature.hex() if isinstance(signed.signature, bytes) else str(signed.signature)
+    if not sig_hex.startswith("0x"):
+        sig_hex = "0x" + sig_hex
+    body = {
+        "address": acct.address,
+        "signature": sig_hex,
+        "timestamp": timestamp,
+    }
+    # Auth endpoint uses v1 response format (code/data) not v2 (status/data)
+    url = f"{DEX_API}/v1/auth/sign-in"
+    try:
+        r = requests.post(url, json=body, timeout=30)
+        r.raise_for_status()
+        resp = r.json()
+        if resp.get("code") != 200:
+            _err(f"Auth error: {resp.get('msg')}")
+        _ok(resp.get("data"))
+    except requests.RequestException as e:
+        _err(f"Auth request failed: {e}")
+
+def _build_make_order_body(args, to_address=None):
+    """Build the request body for makeSwapOrder from parsed args."""
+    from_contract = _resolve_bridge_token(args.from_contract, chain=args.from_chain)
+    to_contract = _resolve_bridge_token(args.to_contract, chain=args.to_chain)
+    body = {
+        "fromChain": args.from_chain,
+        "fromContract": from_contract,
+        "fromAmount": str(args.from_amount),
+        "toChain": args.to_chain,
+        "toContract": to_contract,
+        "toAddress": to_address or args.to_address,
+        "market": args.market,
+    }
+    if args.slippage is not None:
+        body["slippage"] = str(args.slippage)
+    if args.feature:
+        body["feature"] = args.feature
+    return body
+
+def _sign_bridge_txs(acct, txs):
+    """Sign a list of unsigned bridge transactions, return raw hex strings."""
+    signed_list = []
+    for tx_info in txs:
+        d = tx_info["data"]
+        tx = {
+            "chainId": int(tx_info["chainId"]),
+            "nonce": int(d["nonce"]),
+            "to": d["to"],
+            "value": to_wei(d["value"]),
+            "gas": int(d["gasLimit"]),
+            "gasPrice": int(d["gasPrice"]),
+            "data": d["calldata"],
+        }
+        signed = acct.sign_transaction(tx)
+        raw = signed.raw_transaction.hex()
+        if not raw.startswith("0x"):
+            raw = "0x" + raw
+        signed_list.append(raw)
+    return signed_list
+
+def cmd_bridge_make_order(args):
+    """Create a cross-chain swap order. Returns orderId and unsigned transactions."""
+    body = _build_make_order_body(args)
+    data = bridge_post_auth("/v2/order/makeSwapOrder", body, args.jwt)
+    _ok(data)
+
+def cmd_bridge_submit_order(args):
+    """Submit signed transactions for a swap order."""
+    signed_txs = [tx.strip() for tx in args.signed_txs.split(",") if tx.strip()]
+    body = {
+        "orderId": args.order_id,
+        "signedTxs": signed_txs,
+    }
+    data = bridge_post_auth("/v2/order/submitSwapOrder", body, args.jwt)
+    _ok(data)
+
+def cmd_bridge_swap(args):
+    """One-step cross-chain swap: create order, sign transactions, and submit."""
+    acct = _load_account(args.private_key)
+    to_address = args.to_address or acct.address
+
+    # Step 1: make order
+    body = _build_make_order_body(args, to_address=to_address)
+    order = bridge_post_auth("/v2/order/makeSwapOrder", body, args.jwt)
+
+    # Step 2: sign each tx
+    signed_list = _sign_bridge_txs(acct, order.get("txs", []))
+
+    # Step 3: submit
+    order_id = order["orderId"]
+    bridge_post_auth("/v2/order/submitSwapOrder",
+                     {"orderId": order_id, "signedTxs": signed_list}, args.jwt)
+
+    _ok({
+        "orderId": order_id,
+        "fromChain": args.from_chain,
+        "toChain": args.to_chain,
+        "fromAmount": str(args.from_amount),
+        "toMinAmount": order.get("toMinAmount"),
+        "txCount": len(signed_list),
+        "status": "submitted",
+    })
+
+def cmd_bridge_order(args):
+    """Query the status of a swap order."""
+    body = {"orderId": args.order_id}
+    data = bridge_post_auth("/v2/order/getSwapOrder", body, args.jwt)
+    _ok(data)
+
+def cmd_bridge_history(args):
+    """Query historical swap orders."""
+    body = {}
+    if args.page is not None:
+        body["page"] = args.page
+    if args.page_size is not None:
+        body["pageSize"] = args.page_size
+    if args.status:
+        body["status"] = args.status
+    data = bridge_post_auth("/v2/order/history", body, args.jwt)
+    _ok(data)
+
+# ---------------------------------------------------------------------------
+# Commands — Alt-Fee (pay gas with alternative tokens)
+# ---------------------------------------------------------------------------
+
+# -- Alt-fee transaction helpers (type 0x7f) --------------------------------
+
+ALT_FEE_TX_TYPE = 0x7f
+
+def _int_to_min_bytes(value):
+    """Encode non-negative integer to minimal big-endian bytes (0 → b'')."""
+    if value == 0:
+        return b""
+    byte_len = (value.bit_length() + 7) // 8
+    return value.to_bytes(byte_len, "big")
+
+def _hex_to_bytes(hex_str):
+    """Convert hex string to bytes (''/None/'0x' → b'')."""
+    if not hex_str or hex_str == "0x":
+        return b""
+    clean = hex_str[2:] if hex_str.startswith("0x") else hex_str
+    if len(clean) % 2:
+        clean = "0" + clean
+    return bytes.fromhex(clean)
+
+def _rlp_encode(obj):
+    """Minimal RLP encoder (bytes and nested lists only)."""
+    if isinstance(obj, (bytes, bytearray)):
+        length = len(obj)
+        if length == 0:
+            return b"\x80"
+        if length == 1 and obj[0] < 0x80:
+            return bytes(obj)
+        if length < 56:
+            return bytes([0x80 + length]) + obj
+        len_bytes = _int_to_min_bytes(length)
+        return bytes([0xb7 + len(len_bytes)]) + len_bytes + obj
+    elif isinstance(obj, list):
+        payload = b"".join(_rlp_encode(item) for item in obj)
+        length = len(payload)
+        if length < 56:
+            return bytes([0xc0 + length]) + payload
+        len_bytes = _int_to_min_bytes(length)
+        return bytes([0xf7 + len(len_bytes)]) + len_bytes + payload
+    raise TypeError(f"Cannot RLP-encode type {type(obj)}")
+
+def _serialize_altfee_tx(tx, signature=None):
+    """Serialize a Morph alt-fee (0x7f) transaction.
+
+    RLP fields: [chainId, nonce, maxPriorityFeePerGas, maxFeePerGas,
+                 gas, to, value, data, accessList, feeTokenID, feeLimit,
+                 (yParity, r, s if signed)]
+    """
+    fields = [
+        _int_to_min_bytes(tx["chainId"]),
+        _int_to_min_bytes(tx["nonce"]),
+        _int_to_min_bytes(tx["maxPriorityFeePerGas"]),
+        _int_to_min_bytes(tx["maxFeePerGas"]),
+        _int_to_min_bytes(tx["gas"]),
+        _hex_to_bytes(tx.get("to", "0x")),
+        _int_to_min_bytes(tx.get("value", 0)),
+        _hex_to_bytes(tx.get("data", "0x")),
+        [],  # accessList (empty)
+        _int_to_min_bytes(tx["feeTokenID"]),
+        _int_to_min_bytes(tx["feeLimit"]),
+    ]
+    if signature:
+        y_parity, r, s = signature
+        fields.extend([
+            _int_to_min_bytes(y_parity),
+            _int_to_min_bytes(r),
+            _int_to_min_bytes(s),
+        ])
+    return bytes([ALT_FEE_TX_TYPE]) + _rlp_encode(fields)
+
+def _sign_altfee_tx(tx, private_key_hex):
+    """Sign a 0x7f alt-fee transaction, return raw tx as hex string."""
+    try:
+        from eth_keys import keys as _keys
+        from eth_hash.auto import keccak as _keccak
+    except ImportError:
+        _err("eth_account is required: pip install eth_account")
+
+    unsigned = _serialize_altfee_tx(tx)
+    msg_hash = _keccak(unsigned)
+
+    try:
+        pk = _keys.PrivateKey(_hex_to_bytes(private_key_hex))
+    except Exception as e:
+        _err(f"Invalid private key: {e}")
+    sig = pk.sign_msg_hash(msg_hash)
+
+    signed = _serialize_altfee_tx(tx, (sig.v, sig.r, sig.s))
+    return "0x" + signed.hex()
+
+def _get_fee_params(token_id):
+    """Query TokenRegistry for scale, feeRate, decimals of a fee token."""
+    id_hex = hex(token_id)[2:].zfill(64)
+    info_result = rpc_call("eth_call", [
+        {"to": TOKEN_REGISTRY, "data": TR_GET_TOKEN_INFO_SIG + id_hex},
+        "latest",
+    ])
+    if not info_result or info_result == "0x":
+        _err(f"Token ID {token_id} not found in registry")
+    raw = info_result[2:]
+    decimals = int(raw[192:256], 16)
+    scale = int(raw[256:320], 16)
+
+    ratio_result = rpc_call("eth_call", [
+        {"to": TOKEN_REGISTRY, "data": TR_PRICE_RATIO_SIG + id_hex},
+        "latest",
+    ])
+    fee_rate = int(ratio_result, 16) if ratio_result and ratio_result != "0x" else 0
+    if fee_rate == 0:
+        _err(f"Token ID {token_id} has zero fee rate")
+    return scale, fee_rate, decimals
+
+# -- Alt-fee query commands -------------------------------------------------
+
+def cmd_altfee_tokens(_args):
+    """List supported fee tokens from TokenRegistry."""
+    result = rpc_call("eth_call", [
+        {"to": TOKEN_REGISTRY, "data": TR_GET_TOKEN_LIST_SIG},
+        "latest",
+    ])
+    if not result or result == "0x":
+        _ok({"tokens": []})
+        return
+
+    # Decode ABI: returns tuple[] of (uint16 tokenID, address tokenAddress)
+    # ABI encoding: offset(32) + length(32) + N * (uint16_padded(32) + address_padded(32))
+    raw = result[2:]  # strip 0x
+    offset = int(raw[0:64], 16) * 2  # byte offset to data, convert to hex chars
+    count = int(raw[offset:offset+64], 16)
+    tokens = []
+    data_start = offset + 64
+    for i in range(count):
+        # Each tuple is encoded inline: 2 * 32 bytes = 128 hex chars
+        chunk_start = data_start + i * 128
+        token_id = int(raw[chunk_start:chunk_start+64], 16)
+        token_addr = "0x" + raw[chunk_start+64+24:chunk_start+128]  # last 20 bytes of 32-byte word
+        tokens.append({
+            "token_id": token_id,
+            "address": token_addr,
+        })
+    _ok({"tokens": tokens})
+
+def cmd_altfee_token_info(args):
+    """Get fee token details: scale, feeRate, decimals, isActive."""
+    token_id = args.id
+    id_hex = hex(token_id)[2:].zfill(64)
+
+    # getTokenInfo(uint16)
+    info_result = rpc_call("eth_call", [
+        {"to": TOKEN_REGISTRY, "data": TR_GET_TOKEN_INFO_SIG + id_hex},
+        "latest",
+    ])
+    # priceRatio(uint16)
+    ratio_result = rpc_call("eth_call", [
+        {"to": TOKEN_REGISTRY, "data": TR_PRICE_RATIO_SIG + id_hex},
+        "latest",
+    ])
+
+    if not info_result or info_result == "0x":
+        _err(f"Token ID {token_id} not found in registry")
+
+    raw = info_result[2:]
+    # getTokenInfo returns: (TokenInfo struct, bool hasBalanceSlot)
+    # TokenInfo: address tokenAddress, bytes32 balanceSlot, bool isActive, uint8 decimals, uint256 scale
+    # Encoded as 5 words for struct + 1 word for hasBalanceSlot = 6 * 64 hex chars
+    token_addr = "0x" + raw[24:64]  # address (last 20 bytes of word 0)
+    # word 1 = balanceSlot (skip)
+    is_active = int(raw[128:192], 16) != 0  # word 2
+    decimals = int(raw[192:256], 16)  # word 3
+    scale = int(raw[256:320], 16)  # word 4
+
+    fee_rate = int(ratio_result, 16) if ratio_result and ratio_result != "0x" else 0
+
+    _ok({
+        "token_id": token_id,
+        "address": token_addr,
+        "is_active": is_active,
+        "decimals": decimals,
+        "scale": str(scale),
+        "fee_rate": str(fee_rate),
+    })
+
+def cmd_altfee_estimate(args):
+    """Estimate the minimum feeLimit to pay gas with an alternative token.
+
+    Formula: feeLimit >= (gasFeeCap * gasLimit + L1DataFee) * tokenScale / feeRate
+    """
+    token_id = args.id
+    gas_limit = args.gas_limit
+    scale, fee_rate, decimals = _get_fee_params(token_id)
+
+    # Get current gas price as gasFeeCap
+    gas_price_hex = rpc_call("eth_gasPrice", [])
+    gas_fee_cap = int(gas_price_hex, 16)
+
+    # Estimate L1 data fee (use 0 as conservative lower bound; actual L1 fee depends on tx data)
+    l1_data_fee = 0
+
+    # Calculate: feeLimit >= (gasFeeCap * gasLimit + L1DataFee) * tokenScale / feeRate
+    total_fee_wei = gas_fee_cap * gas_limit + l1_data_fee
+    numerator = total_fee_wei * scale
+    fee_limit = (numerator + fee_rate - 1) // fee_rate  # ceiling division
+
+    # Add 10% safety margin
+    fee_limit_safe = fee_limit * 110 // 100
+
+    human = str(Decimal(fee_limit_safe) / Decimal(10**decimals))
+
+    _ok({
+        "token_id": token_id,
+        "gas_limit": gas_limit,
+        "gas_fee_cap_wei": str(gas_fee_cap),
+        "token_scale": str(scale),
+        "fee_rate": str(fee_rate),
+        "fee_limit_min": str(fee_limit),
+        "fee_limit_recommended": str(fee_limit_safe),
+        "fee_limit_human": human,
+        "decimals": decimals,
+        "note": "Recommended feeLimit includes 10% safety margin. L1 data fee not included; actual cost may be slightly higher.",
+    })
+
+def cmd_altfee_send(args):
+    """Sign and broadcast a transaction paying gas with an alternative fee token (type 0x7f).
+
+    Constructs a Morph-specific alt-fee transaction, signs it locally, and broadcasts.
+    feeLimit defaults to 0 (no limit — uses available balance, unused portion is refunded).
+    """
+    validate_address(args.to)
+    acct = _load_account(args.private_key)
+    nonce = int(rpc_call("eth_getTransactionCount", [acct.address, "latest"]), 16)
+
+    # Gas prices (EIP-1559 style)
+    max_fee_per_gas = int(rpc_call("eth_gasPrice", []), 16)
+    max_priority_fee_per_gas = 0  # Morph L2 sequencer; priority fee is negligible
+
+    value_wei = to_wei(args.value) if args.value else 0
+    data_hex = args.data or "0x"
+
+    # Estimate gas
+    tx_for_estimate = {"from": acct.address, "to": args.to}
+    if data_hex != "0x":
+        tx_for_estimate["data"] = data_hex
+    if value_wei > 0:
+        tx_for_estimate["value"] = hex(value_wei)
+    gas_limit = args.gas_limit or int(rpc_call("eth_estimateGas", [tx_for_estimate]), 16)
+
+    # Fee limit: default 0 = no limit (uses available balance, unused is refunded)
+    token_id = args.fee_token_id
+    fee_limit = args.fee_limit if args.fee_limit is not None else 0
+
+    tx = {
+        "chainId": CHAIN_ID,
+        "nonce": nonce,
+        "maxPriorityFeePerGas": max_priority_fee_per_gas,
+        "maxFeePerGas": max_fee_per_gas,
+        "gas": gas_limit,
+        "to": args.to,
+        "value": value_wei,
+        "data": data_hex,
+        "feeTokenID": token_id,
+        "feeLimit": fee_limit,
+    }
+
+    raw_tx = _sign_altfee_tx(tx, args.private_key)
+    tx_hash = rpc_call("eth_sendRawTransaction", [raw_tx])
+    _ok({
+        "tx_hash": tx_hash,
+        "from": acct.address,
+        "to": args.to,
+        "value_eth": args.value or "0",
+        "fee_token_id": token_id,
+        "fee_limit": str(fee_limit),
+        "gas": gas_limit,
+        "type": "0x7f",
+    })
+
+# ---------------------------------------------------------------------------
+# CLI — argparse
+# ---------------------------------------------------------------------------
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        prog="morph_api",
+        description="Morph Mainnet CLI — wallet, explorer & DEX operations",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    # -- Wallet ---------------------------------------------------------------
+    sub.add_parser("create-wallet", help="Generate a new ETH key pair locally")
+
+    p = sub.add_parser("balance", help="Query native ETH balance")
+    p.add_argument("--address", required=True, help="Wallet address")
+
+    p = sub.add_parser("token-balance", help="Query ERC20 token balance")
+    p.add_argument("--address", required=True, help="Wallet address")
+    p.add_argument("--token", required=True, help="Token symbol (e.g. USDT0) or contract address")
+
+    p = sub.add_parser("transfer", help="Send ETH to an address")
+    p.add_argument("--to", required=True, help="Recipient address")
+    p.add_argument("--amount", required=True, help="Amount in ETH (e.g. 0.1)")
+    p.add_argument("--private-key", required=True, help="Sender private key")
+
+    p = sub.add_parser("transfer-token", help="Send ERC20 tokens to an address")
+    p.add_argument("--token", required=True, help="Token symbol (e.g. USDT0) or contract address")
+    p.add_argument("--to", required=True, help="Recipient address")
+    p.add_argument("--amount", required=True, help="Amount in token units (e.g. 10.5)")
+    p.add_argument("--private-key", required=True, help="Sender private key")
+
+    p = sub.add_parser("tx-receipt", help="Query transaction receipt")
+    p.add_argument("--hash", required=True, help="Transaction hash")
+
+    # -- Explorer -------------------------------------------------------------
+    p = sub.add_parser("address-info", help="Address summary from explorer")
+    p.add_argument("--address", required=True, help="Wallet address")
+
+    p = sub.add_parser("address-txs", help="List transactions for an address")
+    p.add_argument("--address", required=True, help="Wallet address")
+    p.add_argument("--limit", type=int, default=None, help="Max results (optional)")
+
+    p = sub.add_parser("address-tokens", help="Token holdings for an address")
+    p.add_argument("--address", required=True, help="Wallet address")
+
+    p = sub.add_parser("tx-detail", help="Transaction details from explorer")
+    p.add_argument("--hash", required=True, help="Transaction hash")
+
+    p = sub.add_parser("token-search", help="Search tokens by name or symbol")
+    p.add_argument("--query", required=True, help="Search query")
+
+    p = sub.add_parser("contract-info", help="Smart contract info: source code, ABI, verification")
+    p.add_argument("--address", required=True, help="Contract address")
+
+    p = sub.add_parser("token-transfers", help="Recent token transfers for a token or address")
+    p.add_argument("--token", default=None, help="Token symbol or address (show transfers of this token)")
+    p.add_argument("--address", default=None, help="Address (show token transfers involving this address)")
+
+    p = sub.add_parser("token-info", help="Token details: name, supply, holders, transfers")
+    p.add_argument("--token", required=True, help="Token symbol (e.g. USDT0) or contract address")
+
+    sub.add_parser("token-list", help="List top tracked tokens from the explorer (single page)")
+
+    # -- DEX ------------------------------------------------------------------
+    p = sub.add_parser("dex-quote", help="Get a swap quote (Bulbaswap v2)")
+    p.add_argument("--amount", required=True, help="Amount to swap (human-readable)")
+    p.add_argument("--token-in", required=True, help="Source token symbol or address (ETH for native)")
+    p.add_argument("--token-out", required=True, help="Destination token symbol or address")
+    p.add_argument("--slippage", default="1", help="Slippage tolerance %% (default: 1)")
+    p.add_argument("--deadline", default="300", help="Quote validity seconds (default: 300)")
+    p.add_argument("--protocols", default="v2,v3", help="Routing protocols (default: v2,v3)")
+    p.add_argument("--recipient", default=None, help="Optional recipient address")
+
+    p = sub.add_parser("dex-send", help="Sign and broadcast a swap tx using calldata from dex-quote")
+    p.add_argument("--to", required=True, help="Router contract address (from methodParameters.to)")
+    p.add_argument("--value", default=None, help="ETH value in ETH (from methodParameters.value, default: 0)")
+    p.add_argument("--data", required=True, help="Calldata hex (from methodParameters.calldata)")
+    p.add_argument("--private-key", required=True, help="Sender private key")
+
+    # -- Bridge ---------------------------------------------------------------
+    sub.add_parser("bridge-chains", help="List supported chains for cross-chain swap")
+
+    p = sub.add_parser("bridge-tokens", help="List available tokens for cross-chain swap")
+    p.add_argument("--chain", default=None, help="Chain name (e.g. morph, eth, base). Default: all chains")
+
+    p = sub.add_parser("bridge-token-search", help="Search tokens by symbol or address across chains")
+    p.add_argument("--keyword", required=True, help="Token symbol or contract address to search")
+    p.add_argument("--chain", default=None, help="Filter by chain (optional)")
+
+    p = sub.add_parser("bridge-quote", help="Get cross-chain or same-chain swap quote")
+    p.add_argument("--from-chain", required=True, help="Source chain (e.g. morph, eth, base, bnb, arbitrum, matic)")
+    p.add_argument("--from-token", required=True, help="Source token address or symbol (ETH for native)")
+    p.add_argument("--amount", required=True, help="Amount to swap (human-readable)")
+    p.add_argument("--to-chain", required=True, help="Destination chain")
+    p.add_argument("--to-token", required=True, help="Destination token address or symbol")
+    p.add_argument("--from-address", required=True, help="Sender wallet address")
+
+    p = sub.add_parser("bridge-balance", help="Query token balance and USD price via bridge API")
+    p.add_argument("--chain", required=True, help="Chain name (e.g. morph, eth, base)")
+    p.add_argument("--token", required=True, help="Token address or symbol (ETH for native)")
+    p.add_argument("--address", required=True, help="Wallet address")
+
+    p = sub.add_parser("bridge-login", help="Sign in with EIP-191 signature to get a JWT access token")
+    p.add_argument("--private-key", required=True, help="Wallet private key for signing")
+
+    p = sub.add_parser("bridge-make-order", help="Create a cross-chain swap order")
+    p.add_argument("--jwt", required=True, help="JWT access token from bridge-login")
+    p.add_argument("--from-chain", required=True, help="Source chain (e.g. morph, eth, base)")
+    p.add_argument("--from-contract", required=True, help="Source token contract address or symbol")
+    p.add_argument("--from-amount", required=True, help="Amount to swap (human-readable)")
+    p.add_argument("--to-chain", required=True, help="Destination chain")
+    p.add_argument("--to-contract", required=True, help="Destination token contract address or symbol")
+    p.add_argument("--to-address", required=True, help="Recipient address on destination chain")
+    p.add_argument("--market", required=True, help="Market/protocol from quote (e.g. stargate)")
+    p.add_argument("--slippage", type=float, default=None, help="Slippage tolerance %% (optional)")
+    p.add_argument("--feature", default=None, help="Feature flag (e.g. no_gas)")
+
+    p = sub.add_parser("bridge-submit-order", help="Submit signed transactions for a swap order")
+    p.add_argument("--jwt", required=True, help="JWT access token from bridge-login")
+    p.add_argument("--order-id", required=True, help="Order ID from bridge-make-order")
+    p.add_argument("--signed-txs", required=True, help="Comma-separated signed transaction hex strings")
+
+    p = sub.add_parser("bridge-swap", help="One-step cross-chain swap: create order, sign, and submit")
+    p.add_argument("--jwt", required=True, help="JWT access token from bridge-login")
+    p.add_argument("--from-chain", required=True, help="Source chain (e.g. morph, eth, base)")
+    p.add_argument("--from-contract", required=True, help="Source token contract address or symbol")
+    p.add_argument("--from-amount", required=True, help="Amount to swap (human-readable)")
+    p.add_argument("--to-chain", required=True, help="Destination chain")
+    p.add_argument("--to-contract", required=True, help="Destination token contract address or symbol")
+    p.add_argument("--to-address", default=None, help="Recipient address (default: sender address)")
+    p.add_argument("--market", required=True, help="Market/protocol from quote (e.g. stargate)")
+    p.add_argument("--slippage", type=float, default=None, help="Slippage tolerance %% (optional)")
+    p.add_argument("--feature", default=None, help="Feature flag (e.g. no_gas)")
+    p.add_argument("--private-key", required=True, help="Private key for signing transactions")
+
+    p = sub.add_parser("bridge-order", help="Query the status of a swap order")
+    p.add_argument("--jwt", required=True, help="JWT access token from bridge-login")
+    p.add_argument("--order-id", required=True, help="Order ID to query")
+
+    p = sub.add_parser("bridge-history", help="Query historical swap orders")
+    p.add_argument("--jwt", required=True, help="JWT access token from bridge-login")
+    p.add_argument("--page", type=int, default=None, help="Page number (optional)")
+    p.add_argument("--page-size", type=int, default=None, help="Results per page (optional)")
+    p.add_argument("--status", default=None, help="Filter by status (e.g. completed)")
+
+    # -- Alt-Fee --------------------------------------------------------------
+    sub.add_parser("altfee-tokens", help="List supported fee tokens from TokenRegistry")
+
+    p = sub.add_parser("altfee-token-info", help="Get fee token details (scale, feeRate, etc.)")
+    p.add_argument("--id", type=int, required=True, help="Fee token ID (1-5)")
+
+    p = sub.add_parser("altfee-estimate", help="Estimate feeLimit for paying gas with alt token")
+    p.add_argument("--id", type=int, required=True, help="Fee token ID (1-5)")
+    p.add_argument("--gas-limit", type=int, default=21000, help="Gas limit (default: 21000)")
+
+    p = sub.add_parser("altfee-send", help="Send a transaction paying gas with alt fee token (0x7f)")
+    p.add_argument("--to", required=True, help="Recipient/contract address")
+    p.add_argument("--value", default=None, help="ETH value to send (default: 0)")
+    p.add_argument("--data", default=None, help="Transaction calldata hex (default: none)")
+    p.add_argument("--fee-token-id", type=int, required=True, help="Fee token ID (1-5)")
+    p.add_argument("--fee-limit", type=int, default=None, help="Max fee token amount in smallest units (default: 0 = no limit)")
+    p.add_argument("--gas-limit", type=int, default=None, help="Gas limit (auto-estimated if omitted)")
+    p.add_argument("--private-key", required=True, help="Sender private key")
+
+    return parser
+
+COMMAND_MAP = {
+    "create-wallet":  cmd_create_wallet,
+    "balance":        cmd_balance,
+    "token-balance":  cmd_token_balance,
+    "transfer":       cmd_transfer,
+    "transfer-token": cmd_transfer_token,
+    "tx-receipt":     cmd_tx_receipt,
+    "address-info":   cmd_address_info,
+    "address-txs":    cmd_address_txs,
+    "address-tokens": cmd_address_tokens,
+    "tx-detail":      cmd_tx_detail,
+    "token-search":   cmd_token_search,
+    "contract-info":  cmd_contract_info,
+    "token-transfers": cmd_token_transfers,
+    "token-info":     cmd_token_info,
+    "token-list":     cmd_token_list,
+    "dex-quote":      cmd_dex_quote,
+    "dex-send":       cmd_dex_send,
+    "bridge-chains":       cmd_bridge_chains,
+    "bridge-tokens":       cmd_bridge_tokens,
+    "bridge-token-search": cmd_bridge_token_search,
+    "bridge-quote":        cmd_bridge_quote,
+    "bridge-balance":      cmd_bridge_balance,
+    "bridge-login":        cmd_bridge_login,
+    "bridge-make-order":   cmd_bridge_make_order,
+    "bridge-submit-order": cmd_bridge_submit_order,
+    "bridge-swap":         cmd_bridge_swap,
+    "bridge-order":        cmd_bridge_order,
+    "bridge-history":      cmd_bridge_history,
+    "altfee-tokens":     cmd_altfee_tokens,
+    "altfee-token-info": cmd_altfee_token_info,
+    "altfee-estimate":   cmd_altfee_estimate,
+    "altfee-send":       cmd_altfee_send,
+}
+
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+    handler = COMMAND_MAP.get(args.command)
+    if handler is None:
+        _err(f"Unknown command: {args.command}")
+    try:
+        handler(args)
+    except SystemExit:
+        raise  # let _ok/_err exits pass through
+    except Exception as e:
+        _err(f"{type(e).__name__}: {e}")
+
+if __name__ == "__main__":
+    main()

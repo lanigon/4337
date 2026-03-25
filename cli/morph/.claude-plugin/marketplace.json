@@ -1,0 +1,52 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "morph-skill",
+  "description": "Morph L2 skills for AI coding assistants — wallet operations, on-chain explorer queries, DEX swap execution, cross-chain bridge swap, and alt-fee gas payment on Morph Mainnet",
+  "owner": {
+    "name": "Morph"
+  },
+  "metadata": {
+    "description": "5 Morph L2 skills — wallet, explorer, DEX swap, cross-chain bridge, and alt-fee gas payment with alternative tokens"
+  },
+  "plugins": [
+    {
+      "name": "morph-skill",
+      "source": "./",
+      "description": "5 Morph L2 skills — wallet operations, on-chain explorer queries, DEX swap execution, cross-chain bridge swap, and alt-fee gas payment with alternative tokens on Morph Mainnet (Chain ID 2818)",
+      "version": "1.3.0",
+      "author": {
+        "name": "Morph"
+      },
+      "homepage": "https://morph.network/",
+      "license": "MIT",
+      "keywords": [
+        "morph",
+        "l2",
+        "blockchain",
+        "web3",
+        "defi",
+        "swap",
+        "dex",
+        "altfee",
+        "bridge",
+        "cross-chain",
+        "wallet",
+        "explorer",
+        "token",
+        "transaction"
+      ],
+      "category": "web3",
+      "tags": [
+        "Morph",
+        "L2",
+        "DeFi",
+        "blockchain",
+        "swap",
+        "altfee",
+        "bridge",
+        "wallet"
+      ],
+      "strict": false
+    }
+  ]
+}

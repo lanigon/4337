@@ -1,0 +1,58 @@
+{
+  "name": "@polygonlabs/agent-cli",
+  "version": "0.3.0",
+  "description": "CLI + Agent Skills for building on-chain agents on Polygon",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0xPolygon/polygon-agent-cli",
+    "directory": "packages/polygon-agent-cli"
+  },
+  "type": "module",
+  "bin": {
+    "polygon-agent": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "contracts",
+    "skills"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "pnpm run build",
+    "dev": "node src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@0xsequence/abi": "3.0.0-beta.17",
+    "@0xsequence/api": "3.0.0-beta.17",
+    "@0xsequence/builder": "3.0.0-beta.17",
+    "@0xsequence/dapp-client": "3.0.0-beta.17",
+    "@0xsequence/dapp-client-cli": "0.1.5",
+    "@0xsequence/indexer": "^2.3.40",
+    "@0xsequence/network": "^2.3.40",
+    "@0xsequence/relayer": "3.0.0-beta.17",
+    "@0xsequence/wallet-core": "3.0.0-beta.17",
+    "@0xsequence/wallet-primitives": "3.0.0-beta.17",
+    "@0xsequence/wallet-wdk": "3.0.0-beta.17",
+    "@0xtrails/api": "^0.10.4",
+    "@polymarket/clob-client": "^5.2.4",
+    "@polymarket/order-utils": "^3.0.1",
+    "@polymarket/sdk": "^6.0.1",
+    "@x402/core": "^2.3.1",
+    "@x402/evm": "^2.3.1",
+    "@x402/fetch": "^2.3.0",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.0",
+    "ethers5": "npm:ethers@^5.7.4",
+    "tweetnacl": "^1.0.3",
+    "tweetnacl-sealedbox-js": "^1.2.0",
+    "viem": "^2.45.3",
+    "yargs": "^17.7.2"
+  },
+  "devDependencies": {
+    "@types/yargs": "^17.0.33"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
